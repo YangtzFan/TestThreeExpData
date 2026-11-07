@@ -1,0 +1,9 @@
+.xmake/
+build/
+*.log
+*.vcd
+*.fst
+*.fsdb
+.luajit_pro/
+.regression/
+out/
