@@ -6,29 +6,6 @@ local tc_dir = path.join(prj_dir, "test_cases")
 local src_dir = path.join(prj_dir, "src")
 local rtl_dir = path.join(prj_dir, "rtl")
 local common_lua = path.join(multi_dir, "common", "lua")
-local docs_xmake = path.join(multi_dir, "TestZhuJiangDocs", "xmake.lua")
-
-if os.isfile(docs_xmake) then
-    includes(docs_xmake)
-end
-
-target("tp", function()
-    set_kind("phony")
-    set_default(false)
-    on_build(function()
-        local tp_main = path.join(prj_dir, "test_points", "main.lua")
-        if not os.isfile(docs_xmake) then
-            raise("TestZhuJiangDocs not initialized: " .. docs_xmake)
-        end
-        if not os.isfile(tp_main) then
-            raise("test point entry not found: " .. tp_main)
-        end
-
-        os.mkdir(path.join(prj_dir, "build"))
-        local args = { "r", "-F", path.join(prj_dir, "xmake.lua"), "run_zj_docs" }
-        os.execv(os.programfile(), args, { envs = { F = tp_main } })
-    end)
-end)
 
 target("format", function()
     set_kind("phony")
@@ -146,7 +123,7 @@ local function resolve_tc()
     return true
 end
 
-target("counter", function()
+target("multiplier", function()
     set_default(true)
     add_rules("verilua")
 

@@ -12,24 +12,6 @@ if os.isfile(docs_xmake) then
     includes(docs_xmake)
 end
 
-target("tp", function()
-    set_kind("phony")
-    set_default(false)
-    on_build(function()
-        local tp_main = path.join(prj_dir, "test_points", "main.lua")
-        if not os.isfile(docs_xmake) then
-            raise("TestZhuJiangDocs not initialized: " .. docs_xmake)
-        end
-        if not os.isfile(tp_main) then
-            raise("test point entry not found: " .. tp_main)
-        end
-
-        os.mkdir(path.join(prj_dir, "build"))
-        local args = { "r", "-F", path.join(prj_dir, "xmake.lua"), "run_zj_docs" }
-        os.execv(os.programfile(), args, { envs = { F = tp_main } })
-    end)
-end)
-
 target("format", function()
     set_kind("phony")
     set_default(false)

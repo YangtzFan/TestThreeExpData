@@ -2,44 +2,32 @@
 
 一仓多小模块的 [Verilua](https://github.com/cyril0124/verilua) UT 示例：多个独立 DUT 共用同一仓库，避免「一个小模块一个验证仓」。
 
-| 模块 | 路径 | DUT |
-| --- | --- | --- |
-| fifo | `modules/fifo` | 同步 FIFO（Driver + Checker） |
-| counter | `modules/counter` | 计数器（env 内直接驱动） |
-| mux | `modules/mux` | 二选一 MUX（env 内直接驱动） |
-
-布局：`common/` 共享代码，`modules/<name>/` 各自是独立 xmake 工程；`TestZhuJiangDocs` 在 Multi 根一份。
+布局：`common/` 共享代码，`modules/<name>/` 各自是独立 xmake 工程。
 
 ## 目录
 
 ```text
 Multi/
 ├── common/lua/
-├── modules/{fifo,counter,mux}/   # 各自 xmake.lua / main.lua
-├── scripts/
-│   ├── emmylua_format.py         # CodeFormat wrapper
-│   ├── emmylua_ls_check.py       # 单文件/目录 Lua 类型检查
-│   └── jobs_gen.lua              # 回归 jobs 目录生成器（xmake 模块）
-├── TestZhuJiangDocs/
-└── init.sh                       # 拉 Docs submodule
+├── modules/{<name1>, <name2>}/   # 各自 xmake.lua / main.lua
+└── scripts/
+    ├── emmylua_format.py         # CodeFormat wrapper
+    ├── emmylua_ls_check.py       # 单文件/目录 Lua 类型检查
+    └── jobs_gen.lua              # 回归 jobs 目录生成器（xmake 模块）
 ```
 
 ## 使用
 
 ```bash
-cd TestExample
-./examples/Multi/init.sh
-
 cd examples/Multi/modules/fifo
 SIM=verilator xmake b
 SIM=verilator TC=001 xmake r
 SIM=verilator TC=002 xmake r
-xmake build tp
 
-cd ../counter
+cd ../matrix_multiplier
 SIM=verilator xmake b && SIM=verilator TC=001 xmake r
 
-cd ../mux
+cd ../fifo
 SIM=verilator xmake b && SIM=verilator TC=001 xmake r
 ```
 
