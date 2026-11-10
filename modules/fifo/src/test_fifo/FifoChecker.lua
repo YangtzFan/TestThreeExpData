@@ -2,14 +2,14 @@ local insert = table.insert
 local remove = table.remove
 local string_format = string.format
 
----@class test_example.FifoChecker
+---@class test_fifo.FifoChecker
 ---@field expected integer[]
 ---@field verbose  boolean
 local FifoChecker = {}
 FifoChecker.__index = FifoChecker
 
 ---@param opts { verbose?: boolean } | nil
----@return test_example.FifoChecker
+---@return test_fifo.FifoChecker
 function FifoChecker.new(opts)
     opts = opts or {}
     local self = setmetatable({}, FifoChecker)

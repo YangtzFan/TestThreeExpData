@@ -1,5 +1,5 @@
-local FifoDriver = require "test_example.FifoDriver"
-local FifoChecker = require "test_example.FifoChecker"
+local FifoDriver = require "test_fifo.FifoDriver"
+local FifoChecker = require "test_fifo.FifoChecker"
 local common = require "test_example_common"
 
 local clock = dut.clock:chdl()

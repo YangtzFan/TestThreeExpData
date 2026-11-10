@@ -165,7 +165,7 @@ target("fifo", function()
         path.join(rtl_dir, "*.sv"),
         path.join(prj_dir, "*.lua"),
         path.join(src_dir, "*.lua"),
-        path.join(src_dir, "test_example", "*.lua"),
+        path.join(src_dir, "test_fifo", "*.lua"),
         path.join(tc_dir, "*.lua"),
         path.join(common_lua, "*.lua")
     )

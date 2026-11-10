@@ -2,7 +2,7 @@
 
 同步 FIFO 模块（`DEPTH=4`，`DATA_WIDTH=8`）。含 Driver + Checker，习惯对齐 `Single`。
 
-组件在 `src/test_example/`（namespace）：`require "test_example.FifoDriver"`，类型注释写 `---@class test_example.FifoDriver`。说明见仓库 [`Single/README.md`](../../../Single/README.md)「为什么要有 namespace」。
+组件在 `src/test_fifo/`（namespace）：`require "test_fifo.FifoDriver"`，类型注释写 `---@class test_fifo.FifoDriver`。说明见仓库 [`Single/README.md`](../../../Single/README.md)「为什么要有 namespace」。
 
 ```bash
 SIM=verilator xmake b

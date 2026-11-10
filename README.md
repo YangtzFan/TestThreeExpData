@@ -50,7 +50,7 @@ SIM=verilator xmake b && SIM=verilator TC=001 xmake r
 ```bash
 xmake r format
 F=src/env.lua xmake r format
-F=src/test_example xmake r format
+F=src/test_fifo xmake r format
 F=/absolute/path/to/file.lua xmake r format
 
 xmake r lsp-check

@@ -1,6 +1,6 @@
 local string_format = string.format
 
----@class test_example.FifoDriver
+---@class test_fifo.FifoDriver
 ---@field clock    verilua.handles.CallableHDL
 ---@field wr_valid verilua.handles.CallableHDL
 ---@field wr_ready verilua.handles.CallableHDL
@@ -8,7 +8,7 @@ local string_format = string.format
 ---@field rd_valid verilua.handles.CallableHDL
 ---@field rd_ready verilua.handles.CallableHDL
 ---@field rd_data  verilua.handles.CallableHDL
----@field checker  test_example.FifoChecker
+---@field checker  test_fifo.FifoChecker
 ---@field timeout  integer
 ---@field verbose  boolean
 local FifoDriver = {}
@@ -22,11 +22,11 @@ FifoDriver.__index = FifoDriver
 ---  rd_valid: verilua.handles.CallableHDL,
 ---  rd_ready: verilua.handles.CallableHDL,
 ---  rd_data: verilua.handles.CallableHDL,
----  checker: test_example.FifoChecker,
+---  checker: test_fifo.FifoChecker,
 ---  timeout?: integer,
 ---  verbose?: boolean,
 --- }
----@return test_example.FifoDriver
+---@return test_fifo.FifoDriver
 function FifoDriver.new(opts)
     local self = setmetatable({}, FifoDriver)
     self.clock = opts.clock
