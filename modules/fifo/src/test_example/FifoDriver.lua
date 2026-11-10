@@ -73,7 +73,7 @@ function FifoDriver:pop()
     end)
     assert(ok, "FifoDriver:pop timeout waiting rd_valid")
 
-    local data = self.rd_data:get()
+    local data = self.rd_data:get() --[[@as integer]]
     self.rd_ready:set_imm(1)
     if self.verbose then
         print(string_format("[FifoDriver] pop data=0x%02x", data))
