@@ -127,7 +127,7 @@ target("multiplier", function()
     set_default(true)
     add_rules("verilua")
 
-    local sim = os.getenv("SIM") or "vcs"
+    local sim = os.getenv("SIM") or "verilator"
     if sim == "verilator" then
         add_toolchains("@verilator")
     elseif sim == "iverilog" then
@@ -146,9 +146,9 @@ target("multiplier", function()
         path.join(common_lua, "*.lua")
     )
 
-    set_values("verilua.build_dir_name", "counter")
+    set_values("verilua.build_dir_name", "matrix_multiplier")
     set_values("verilua.user_cfg", path.join(src_dir, "cfg.lua"))
-    set_values("verilua.top", "Counter")
+    set_values("verilua.top", "matrix_multiplier")
     set_values("verilua.lua_main", path.join(prj_dir, "main.lua"))
     add_values("verilator.flags", "--trace", "--no-trace-top")
     set_values("vcs.run_flags", "+vcs+lic+wait")

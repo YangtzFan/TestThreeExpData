@@ -132,7 +132,7 @@ target("fifo", function()
     set_default(true)
     add_rules("verilua")
 
-    local sim = os.getenv("SIM") or "vcs"
+    local sim = os.getenv("SIM") or "verilator"
     if sim == "verilator" then
         add_toolchains("@verilator")
     elseif sim == "iverilog" then

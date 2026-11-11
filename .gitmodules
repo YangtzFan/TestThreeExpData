@@ -1,0 +1,3 @@
+[submodule "modules/riscv-mini/riscv-mini"]
+	path = modules/riscv-mini/riscv-mini
+	url = git@github.com:YangtzFan/riscv-mini.git
