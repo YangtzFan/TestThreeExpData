@@ -27,14 +27,12 @@
       ".vscode",
       ".xmake",
       "build",
-      "TestZhuJiangDocs/tests",
-      "TestZhuJiangDocs/examples"
+      "modules"
     ],
     "ignoreGlobs": [],
     "library": [
       "$VERILUA_HOME/src/lua",
-      "./common/lua",
-      "./TestZhuJiangDocs/src/lua"
+      "./common/lua"
     ]
   }
 }
