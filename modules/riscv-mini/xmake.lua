@@ -81,6 +81,7 @@ target("clean", function()
     set_default(false)
     on_run(function()
         os.tryrm(path.join(prj_dir, "build"))
+        os.tryrm(path.join(riscv_dir, "build"))
     end)
 end)
 
