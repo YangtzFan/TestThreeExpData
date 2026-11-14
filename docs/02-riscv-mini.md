@@ -184,26 +184,19 @@ flowchart LR
 
 取指级负责把下一条指令的地址送给 I-Cache，并把返回的指令和当前地址一起送入执行级。
 
-```mermaid
-%%{init: {"flowchart": {"minNodeWidth": 0, "padding": 0}}}%%
-flowchart LR
-    PC["pc"] --> NPC["next_pc 选择逻辑"]
-    NPC -->|"请求地址"| IC["I-Cache"]
-    IC -->|resp.bits.data| GATE["指令门控"]
-    IC -->|resp.valid| STALL["stall 逻辑"]
-    DC["D-Cache resp.valid"] --> STALL
-    STALL -->|"!stall：更新使能"| FE["fe_reg：inst、pc"]
-    START["started"] --> GATE
-    KILL["inst_kill / taken / expt"] --> GATE
-    GATE -->|inst| FE
-    PC -->|沿前的 pc| FE
+取指请求的地址使用 `next_pc`，这说明在正常顺序取值的情况下，I-Cache 的请求地址是 `pc + 4`。
+
+**`started` 与启动周期**
+
+```scala
+val started = RegNext(reset.asBool)
 ```
 
-取指请求的地址使用 `next_pc`，这说明 I-Cache 的请求地址可能是顺序地址 `pc + 4`。
+`started` 保存上一拍的复位信号。因此复位刚刚异步释放时，它仍为真，直到下一个时钟沿采样到复位为 0 后才变为 0。这个信号用于在启动周期把 `inst` 替换为 `NOP`，防止把复位刚刚释放那一刻的错误指令送入流水线。
 
-取指只读，因此写数据置零，字节写掩码也置零以表示读操作；取指请求的 `abort` 固定为假。
+**I-Cache 访问与取指门控**
 
-`stall` 则是指 I-Cache 和 D-Cache 都没有响应。
+取指只读，因此 I-Cache 的写数据置零，字节写掩码也置零以表示读操作；取指请求的 `abort` 固定为假。`stall` 指 I-Cache 和 D-Cache 都没有响应。
 
 ```scala
 val stall = !io.icache.resp.valid || !io.dcache.resp.valid
@@ -214,68 +207,36 @@ io.icache.req.valid := !stall
 io.icache.abort := false.B
 ```
 
-I-Cache 返回的数据不会无条件进入流水线，而是先经过 `inst` 的组合选择：
-
-```scala
-val inst = Mux(
-  started || io.ctrl.inst_kill || brCond.io.taken || csr.io.expt,
-  Instructions.NOP,
-  io.icache.resp.bits.data
-)
-```
-
-只要以下任一条件成立，当前取指结果就改成 `NOP`：
+I-Cache 返回的数据先经过取指门控的选择才进入流水线。当以下任一条件成立，传入流水线的指令改为 `NOP`：
 
 - `started`：复位刚释放后的启动周期，避免把启动阶段尚未对应到有效请求的数据当作第一条指令
-- `io.ctrl.inst_kill`：当前执行级指令要求插入气泡，例如跳转、load、CSR 指令、`FENCEI` 或 `ERET`，跳转时丢弃顺序路径指令；保持 PC 时插入气泡，为当前操作留出处理时间
-- `brCond.io.taken`：执行级条件分支成立，分支目标已经改写 `next_pc`，顺序路径上的返回指令需要丢弃
-- `csr.io.expt`：写回级检测到异常，异常入口优先，年轻指令不能越过异常继续执行
 
-这里的 `NOP` 是一种流水线气泡，不会改变程序可见的寄存器或存储器状态。`inst` 的选择是组合逻辑；若同时发生停顿，即使 `inst` 已变成 `NOP`，也要等允许推进时才会写入 `fe_reg`。
+- `io.ctrl.inst_kill`：执行级指令要求暂停流水线，在此处插入气泡，例如跳转、load、CSR 指令、`FENCEI` 或 `ERET`
 
-**`started` 与启动周期**
+- `brCond.io.taken`：执行级条件分支成立，原顺序路径上取回的指令需要丢弃
 
-```scala
-val started = RegNext(reset.asBool)
-```
+- `csr.io.expt`：写回级检测到异常，异常入口优先
 
-`started` 保存上一拍的复位信号。因此复位刚释放时，它仍为真；下一个时钟沿采样到复位为假后，它才变为假。这个信号不参与 PC 选择，只在启动周期把 `inst` 替换为 `NOP`。
+**写入取指-执行流水寄存器**
 
-复位释放后，`pc = 0x1FC`，在允许推进且没有重定向时，`next_pc = 0x200`。虽然此时送出的请求地址正确，但 I-Cache 使用同步读存储器，当前返回的数据并不立即对应刚送出的 `0x200`。此外，Cache 处于空闲状态时也会令 `resp.valid` 为真，所以启动时不能只靠 `stall` 排除无效返回值。`started` 正是用来屏蔽这一拍的返回数据。
+当没有停顿时，取指级把 `pc` 和经过门控的 `inst` 写入 `fe_reg`：
 
-在首个允许推进的启动沿，PC 更新为 `0x200`，`fe_reg.inst` 写入 `NOP`。此后如果入口取指未命中，Cache 会通过响应有效位使核心停顿；入口指令准备好后，才会与 `pc = 0x200` 一起进入执行级。`started` 只负责启动这一拍，不会一直等待首次 Cache 响应。
+这里有一个容易混淆的时序关系：同一个时钟沿还会执行 `pc := next_pc`，这里 `fe_reg.pc := pc` 使用的是旧 `pc`。所以 `fe_reg` 是当前返回指令对应的地址，而 I-Cache 请求使用的是下一次取指地址 `next_pc`。
 
-**写入取指—执行流水寄存器**
+假定流水线连续且没有气泡，可以用连续顺序取指表示这个关系：
 
-当没有停顿时，取指级把当前 `pc` 和经过门控的 `inst` 写入 `fe_reg`：
-
-```scala
-when(!stall) {
-  fe_reg.pc := pc
-  fe_reg.inst := inst
-}
-```
-
-这里有一个容易混淆的时序关系：同一个时钟沿还会执行 `pc := next_pc`，但 `fe_reg.pc := pc` 读取的是时钟沿到来前的旧 `pc`。所以 `fe_reg` 保存的是**当前返回指令对应的地址**，而 I-Cache 请求使用的是**下一次取指地址 `next_pc`**。
-
-忽略启动气泡，假定缓存连续命中、没有停顿或冲刷，可以用连续顺序取指表示这个关系：
-
-| 时钟沿前 `pc` | 本周期 I-Cache 请求 `next_pc` | 写入 `fe_reg.pc` | 写入 `fe_reg.inst` |
-| --- | --- | --- | --- |
+| `pc` | `next_pc` | 即将写入 `fe_reg.pc` | 即将写入 `fe_reg.inst` |
+| ------- | ------- | ------- | -------------------- |
 | `0x200` | `0x204` | `0x200` | `0x200` 处返回的指令 |
 | `0x204` | `0x208` | `0x204` | `0x204` 处返回的指令 |
 | `0x208` | `0x20C` | `0x208` | `0x208` 处返回的指令 |
-
-当 `stall` 为真时，`io.icache.req.valid` 为假，`fe_reg` 也不更新，`pc` 通过 `next_pc = pc` 保持不变。等缓存响应重新有效后，取指级才恢复推进。
 
 **分支或跳转发生时的取指顺序**
 
 分支和跳转的目标地址由执行级产生，而取指级已经可能沿顺序路径发起了下一次请求。因此处理过程分为两步：
 
-1. 执行级通过 `brCond.io.taken` 或 `io.ctrl.pc_sel === PC_ALU` 让 `next_pc` 改为目标地址。
-2. 在允许推进时，取指级当周期就把目标地址送给 I-Cache，同时用 `brCond.io.taken` 或 `io.ctrl.inst_kill` 把当前顺序路径的返回值改为 `NOP`。目标指令在之后准备好并允许推进时才进入执行级。
-
-这不是带有 BTB 或历史表的动态分支预测器；普通取指只是沿 `pc + 4` 的顺序路径继续请求，等执行级确认跳转后再重定向并冲刷错误路径。`fe_reg` 因此既可能接收正常指令，也可能接收用于清空错误路径的 `NOP`。
+1. 执行级让 `next_pc` 选择分支或跳转的目标地址。
+2. 取指级把当前返回的指令改为 `NOP`。
 
 ### 2.4 执行逻辑
 
@@ -344,25 +305,74 @@ NASTI 总线的五个通道都为 `Decoupled` 端口协议，使用 `valid/ready
 
 ### 4.2 基本结构
 
-Cache 的主体主要由以下存储元件组成。
+Cache 的数据主体主要由以下存储元件组成。
 
 | 关键元件 | 类型 | 功能名称 |
 | --- | --- | --- |
-| `metaMem` | `SyncReadMem` | Tag 存储器 |
-| `dataMem` | `SyncReadMem` | 数据存储器 |
-| `v` | `Reg` | 有效标志位寄存器 |
-| `d` | `Reg` | 脏标志位寄存器 |
+| `metaMem` | `SyncReadMem` | Tag 存储器（同步读） |
+| `dataMem` | `SyncReadMem` | 数据存储器（同步读） |
+| `v` | `Reg` | 有效标志位寄存器（异步读） |
+| `d` | `Reg` | 脏标志位寄存器（异步读） |
 
-### 4.3 读时序
+Cache 的控制组件主要由以下存储元件组成。
 
-读请求的 `io.cpu.req.bits.mask = 0`。`metaMem` 和 `dataMem` 均为同步读存储器，所以请求地址进入 Cache 后，要到下一个周期才能用读出的 Tag 判断是否命中。
+| 关键元件 | 类型 | 功能名称 |
+| -------- | ---- | -------- |
+| `state`  | `Reg` | 状态机 |
+| `addr_reg`  | `Reg` | 地址暂存 |
+| `cpu_data`  | `Reg` | 数据暂存 |
+| `cpu_mask`  | `Reg` | 掩码暂存 |
 
-1. **发起请求（`sIdle`）**：当 `req.valid = 1` 时，直接使能 `metaMem` 和 `dataMem` 的同步读，并在时钟沿把请求地址写入 `addr_reg`，随后进入 `sReadCache`。此时 `sIdle` 已使 `resp.valid = 1`，但返回数据还不对应刚发出的地址，不能据此认定本次读命中。
-2. **判断命中（下一周期，`sReadCache`）**：用读出的 `rmeta.tag` 与 `addr_reg` 中的 Tag 比较，同时检查 `v(idx_reg)`。若命中，按 `off_reg` 从 `rdata` 选出 32 位目标字；`resp.valid = 1`，`resp.bits.data` 即为读结果，无需访问 NASTI。若有下一笔有效请求，可继续发起同步读。
-3. **处理缺失（`sReadCache`）**：若未命中，`resp.valid` 拉低，Cache 保持待处理地址，Core 等待。若原 Set 有效且为脏，先经过 `sWriteBack` 和 `sWriteAck` 写回旧行，再在 `sRefillReady` 发起读地址请求；否则直接发起读地址请求。读地址握手后进入 `sRefill`。
-4. **接收回填（`sRefill`）**：`io.nasti.r.ready = 1`；每次 `r.fire` 将一个 64 位数据拍写入 `refill_buf(read_count)`。当前配置每行需 2 拍；第二拍握手时，`read_wrap_out` 使 Cache 在该时钟沿写入新 Tag 和整行数据，将 `v` 置 1、`d` 清 0。回填期间 `resp.valid = 0`，所需周期取决于外部存储器。
-5. **返回数据（回填后的下一周期）**：状态回到 `sIdle`，`is_alloc_reg = 1` 使数据多路选择器使用完整的 `refill_buf`，再由 `off_reg` 选出原请求的字。此时读结果有效，流水线可以恢复推进。
+当有请求传递进来时，还需将本次请求的相关信息存储到 `addr_reg`、`cpu_data`、`cpu_mask`  中，供后续组件使用。
 
-因此，**命中需要一次同步存储器读延迟**；缺失还需等待可能的脏行写回与 NASTI 回填。Cache 以配置的 `dataBeats` 和握手计数判断最后一个回填拍，而不是用 `io.nasti.r.bits.last` 判断。`resp.valid` 在空闲状态也为真，解释读响应时须结合当前请求和状态，不能只看这个信号。
+### 4.3 状态机切换逻辑
 
-### 4.4 写时序
+`state` 寄存器用于管理状态机，复位处于 `sIdle`，各状态的去向如下：
+
+1. **`sIdle`（等待请求）**：收到 Core 一侧的有效请求时，直接将地址传递到 Cache 中读取 Tag 和数据。
+	- 无有效请求 → 保持 `sIdle`
+	- 读请求（掩码为 0）→ `sReadCache`
+	- 写请求（掩码非 0）→ `sWriteCache`
+
+2. **`sReadCache`（处理读）**：比较 Tag，命中时返回数据；缺失时发起外部访存。
+	- 命中，且无下一笔有效请求 → `sIdle`
+	- 命中，且下一笔为读请求 → `sReadCache`
+	- 命中，且下一笔为写请求 → `sWriteCache`
+	- 缺失、旧行脏且 `aw.fire` → `sWriteBack`
+	- 缺失、旧行不脏且 `ar.fire` → `sRefill`
+	- 缺失但地址尚未握手 → 保持 `sReadCache`
+
+3. **`sWriteCache`（处理写）**：命中或回填后按掩码写入；`abort` 取消写操作。
+	- 命中且 `is_alloc_reg` 为真，或 `abort` 为真 → `sIdle`
+	- 命中且不取消，地址尚未握手 → 保持 `sWriteCache`
+	- 命中且不取消，旧行脏且 `aw.fire` → `sWriteBack`
+	- 命中且不取消，旧行不脏且 `ar.fire` → `sRefill`
+
+4. **`sWriteBack`（写回数据）**：通过 `io.nasti.w` 逐拍发送旧行。
+	- 尚未收到最后一拍 → 保持 `sWriteBack`
+	- 收到最后一拍（`write_wrap_out`）→ `sWriteAck`
+
+5. **`sWriteAck`（等待写应答）**：拉高 `io.nasti.b.ready`
+	- 未收到应答 → 保持 `sWriteAck`
+	- 收到应答 → `sRefillReady`
+
+6. **`sRefillReady`（请求新行）**：通过 `io.nasti.ar` 发起新行读取
+	- 读地址未握手 → 保持 `sRefillReady`
+	- `ar.fire` → `sRefill`
+
+7. **`sRefill`（接收新行）**：按 `read_count` 接收数据；最后一拍写入新 Tag 和整行数据、置有效并清脏
+	- 未收齐数据拍 → 保持 `sRefill`
+	- 最后一拍握手且原请求为读 → `sIdle`
+	- 最后一拍握手且原请求为写 → `sWriteCache`
+
+### 4.4 写回与回填
+
+读写请求在 Cache 缺失时需要回填。若目标 CacheLine 有效且脏，还必须先写回外部存储器。
+
+1. **选择路径**：Cache 根据 `v(idx_reg)` 和 `d(idx_reg)` 判断旧行是否为有效脏行。若不是，直接请求回填新行；若是，先进入写回流程。
+
+2. **写回旧行**：以旧 Tag 和 Set 索引组成写回地址，通过 AW 通道发送写地址，待两个数据拍 W 发送完毕，并收到写应答后，才能回填 CacheLine。
+
+3. **回填新行**：以原请求的 Tag 和 Set 索引，通过 AR 发出读地址，待全都接收完毕后，写入新 Tag 和数据，将有效位置 1、脏位清 0。
+
+4. **完成原请求**：原请求是读时，从新行选出目标字返回；原请求是写时，回到 `sWriteCache` 按字节掩码完成写入，并把新行置脏。
