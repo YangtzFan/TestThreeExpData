@@ -1,5 +1,9 @@
+/.pi/
+/.metals/
+/.vscode/
+/.scala-build/
+/docs/spec/
 .xmake/
-.pi/
 build/
 *.log
 *.vcd
