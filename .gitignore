@@ -2,6 +2,7 @@
 /.metals/
 /.vscode/
 /.scala-build/
+/docs/spec/
 .xmake/
 build/
 *.log
