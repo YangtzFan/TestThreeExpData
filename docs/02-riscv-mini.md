@@ -277,6 +277,7 @@ CSR 同时检查非法指令、权限、地址对齐及 `ECALL`/`EBREAK` 等异�
 本仓库中有 2 个待选择的 ALU 元件：`AluSimple` 和 `AluArea`。
 
 - `CoreConfig` 用 `makeAlu: Int => Alu` 指定 ALU 的构造方式，默认值是 `new AluSimple(_)`。
+
 - 本项目的 `MiniConfig` 将 `xlen` 设为 32，并把 `makeAlu` 显式改为 `new AluArea(_)`；`Datapath` 再通过 `Module(conf.makeAlu(conf.xlen))` 实例化。
 
 输入 `width` 位的 `A`、`B` 和 4 位的 `alu_op`，输出为 `width` 位的 `out`、`sum`，内部为组合逻辑。
@@ -301,6 +302,53 @@ CSR 同时检查非法指令、权限、地址对齐及 `ECALL`/`EBREAK` 等异�
 `AluSimple` 给各种操作直接写出表达式，代码上更加简洁。`AluArea` 则充分复用了各种运算元件，可以节省面积。
 
 ### 3.4 控制模块译码逻辑
+
+`Control` 模块负责执行级的 `fe_reg.inst` 32 位指令翻译成数据通路能使用的控制信号。`Control` 内没有寄存器。
+
+**端口信号列表**
+
+| 信号 | 位宽 | 功能 |
+| --- | --- | --- |
+| `pc_sel` | 2 | 下一 PC 来源：顺序地址、ALU、保持不变或异常返回 |
+| `inst_kill` | 1 | 是否将即将进入执行级的指令替换为 `NOP` |
+| `A_sel` | 1 | ALU 左操作数：`R[rs1]` 或 PC |
+| `B_sel` | 1 | ALU 右操作数：`R[rs2]` 或立即数 |
+| `imm_sel` | 3 | `ImmGen` 生成的立即数格式 |
+| `alu_op` | 4 | ALU 运算类型 |
+| `br_type` | 3 | 分支指令类型 |
+| `st_type` | 2 | 存储指令类型 |
+| `ld_type` | 3 | 载入指令类型 |
+| `wb_sel` | 2 | 写回数据：ALU、载入数据、`PC+4` 和 CSR |
+| `wb_en` | 1 | 是否写通用寄存器 |
+| `csr_cmd` | 3 | CSR 相关操作 |
+| `illegal` | 1 | 未识别的非法指令 |
+
+**控制信号译码原理**
+
+译码代码可以按“ → 控制字 → 输出端口”三步理解：
+
+1. **定义指令**：在 `Instructions.scala` 模块中定义 `Instructions` 对象，用 `BitPat` 定义指令模式，`?` 表示该位置可取任意值。
+
+2. **定义控制信号**：在 `Control.scala` 中用伴生对象 `object Control` 定义各端口的输出值，再定义 `map`。其中每个条目都是“指令模式 `->` 一组控制值”的格式。`default` 是没有匹配项时的默认值。
+
+3. **连接模块端口**：结构体 `ControlSignals` 就是输出端口，包含一个 32 位输入 `inst` 和上表所列的 13 个输出，然后通过 `ListLookup` 译码后逐个将结果连到各个端口之上。
+
+示例：`ADDI` 如何变成控制信号
+
+```scala
+// Instructions.scala：固定 funct3=000 和 opcode=0010011
+def ADDI = BitPat("b?????????????????000?????0010011")
+
+// Control.map 中的 ADDI 条目，13 项按固定顺序排列
+ADDI -> List(PC_4, A_RS1, B_IMM, IMM_I, ALU_ADD, BR_XXX,
+             N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N)
+
+// class Control：按位置把选中的控制字接到端口
+val ctrlSignals = ListLookup(io.inst, Control.default, Control.map)
+io.A_sel := ctrlSignals(1)
+io.alu_op := ctrlSignals(4)
+io.wb_en := ctrlSignals(10).asBool
+```
 
 ## 第四章 缓存系统
 
