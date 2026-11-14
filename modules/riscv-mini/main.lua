@@ -8,7 +8,7 @@ fork {
         end
 
         local env = require "env"
-        env.start_memory()
+        env.memory:initialize()
         env.dut_reset()
 
         local tc = tc_path and dofile(tc_path) or require(tc_name)

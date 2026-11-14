@@ -1,0 +1,3 @@
+image,has_cache,axi_delay_cycles,cycles_reset_to_ecall,committed_instructions
+matmul_2x3_3x5_rv32i.hex,true,5,4223,2562
+matmul_2x3_3x5_rv32i.hex,false,5,46429,2562

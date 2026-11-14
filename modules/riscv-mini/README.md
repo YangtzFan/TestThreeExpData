@@ -24,11 +24,13 @@ RTL 先生成到子模块的 `riscv-mini/build/rtl/`，随后完整复制到验�
 
 ## 激励
 
-当前阶段加载 `.hex` 镜像、响应 Tile 的 NASTI 读写请求、复位并运行指定周期，暂不包含检查器。默认加载验证工程中的 `programs/rv32ui-p-simple.hex`。这些镜像从原 riscv-mini 的 `tests/` 移出，保留原文件内容；RTL 子模块不再保存程序镜像和验证代码。`TC` 支持用例前缀、完整名称或 Lua 文件路径。
+环境通过 `test_zhujiang_utils.AXI4Memory` 响应 Tile 的 NASTI 读写请求，并按小端字节序将 `.hex` 镜像预加载到其 64 位内存中。`DiffMonitor` 在写回阶段按指令推进参考模拟器，只比较提交记录中的 PC、标量/矩阵写回、存储写入及异常/ECALL 信息；执行阶段请求用于对齐存储写入，周期计数用于同步参考模型的 CSR。停顿和流水线气泡不会推进模拟器。默认加载 `programs/rv32ui-p-simple.hex`。`TC` 支持用例前缀、完整名称或 Lua 文件路径。
+
+构建时默认从仓库同级的 `TestZhuJiangUtils/` 加载 AXI4Memory；其他位置可设置 `TEST_ZHUJIANG_UTILS_ROOT`。若比对失败，监视器会报告提交序号、PC 及 DUT/EMU 的不同值并终止测试。
 
 ```bash
 RISCV_HEX=programs/rv32ui-p-add.hex RISCV_RUN_CYCLES=20000 \
   SIM=verilator TC=001 DUMP=1 xmake r sim
 ```
 
-`RISCV_HEX` 可指定绝对路径，或相对于验证工程 `modules/riscv-mini/` 的镜像路径；`RISCV_RUN_CYCLES` 控制运行周期，`DUMP=1` 导出波形。运行结束标记表示激励执行完成，不代表处理器功能检查通过。
+`RISCV_HEX` 可指定绝对路径，或相对于验证工程 `modules/riscv-mini/` 的镜像路径；`RISCV_RUN_CYCLES` 控制运行周期，`DUMP=1` 导出波形。仿真至少需要看到一条写回指令，否则会报错。

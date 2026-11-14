@@ -136,6 +136,12 @@ target("sim", function()
         path.join(src_dir, "test_riscv_mini", "*.lua"),
         path.join(tc_dir, "*.lua")
     )
+    local utils_root = os.getenv("TEST_ZHUJIANG_UTILS_ROOT") or path.join(multi_dir, "..", "TestZhuJiangUtils")
+    local utils_lua_dir = path.join(utils_root, "src", "test_zhujiang_utils")
+    if not os.isfile(path.join(utils_lua_dir, "AXI4Memory.lua")) then
+        raise("AXI4Memory.lua not found; set TEST_ZHUJIANG_UTILS_ROOT to the TestZhuJiangUtils checkout")
+    end
+    add_files(path.join(utils_lua_dir, "*.lua"))
 
     add_runenvs("RISCV_ENV_ROOT", prj_dir)
     set_values("cfg.build_dir_name", "sim")

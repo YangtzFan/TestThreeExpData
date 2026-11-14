@@ -1,0 +1,4 @@
+image,isa,optimization,axi_delay_cycles,cycles_reset_to_ecall,committed_instructions
+matmul_2x3_3x5_rv32i.hex,rv32i,O0,5,4223,2562
+matmul_2x3_3x5_rv32im.hex,rv32im,O0,5,2788,1440
+matmul_2x3_3x5_mamul.hex,mamul,O0+manual,5,994,243
