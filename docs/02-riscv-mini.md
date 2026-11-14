@@ -274,6 +274,32 @@ CSR 同时检查非法指令、权限、地址对齐及 `ECALL`/`EBREAK` 等异�
 
 ### 3.3 算术逻辑单元
 
+本仓库中有 2 个待选择的 ALU 元件：`AluSimple` 和 `AluArea`。
+
+- `CoreConfig` 用 `makeAlu: Int => Alu` 指定 ALU 的构造方式，默认值是 `new AluSimple(_)`。
+- 本项目的 `MiniConfig` 将 `xlen` 设为 32，并把 `makeAlu` 显式改为 `new AluArea(_)`；`Datapath` 再通过 `Module(conf.makeAlu(conf.xlen))` 实例化。
+
+输入 `width` 位的 `A`、`B` 和 4 位的 `alu_op`，输出为 `width` 位的 `out`、`sum`，内部为组合逻辑。
+
+| 操作码 | 名称 | 运算内容 |
+| ------ | ---- | -------- |
+| `ALU_ADD` (`0000`) | 加法 | `A + B` |
+| `ALU_SUB` (`0001`) | 减法 | `A - B` |
+| `ALU_AND` (`0010`) | 按位与 | `A & B` |
+| `ALU_OR` (`0011`) | 按位或 | `A \| B` |
+| `ALU_XOR` (`0100`) | 按位异或 | `A ^ B` |
+| `ALU_SLT` (`0101`) | 有符号判小置1 | `if sign(A) < sign(B) 1 else 0` |
+| `ALU_SLL` (`0110`) | 逻辑左移 | `A << B[4:0]` |
+| `ALU_SLTU` (`0111`) | 无符号判小置1 | `if A < B 1 else 0` |
+| `ALU_SRL` (`1000`) | 逻辑右移 | `A >> B[4:0]` 位 |
+| `ALU_SRA` (`1001`) | 算术右移 | `sign(A) >> B[4:0]` 高位补符号位 |
+| `ALU_COPY_A` (`1010`) | 复制 A | `out = A` |
+| `ALU_COPY_B` (`1011`) | 复制 B | `out = B`（默认输出） |
+
+另外，模块中还有辅助输出 `sum = A + (alu_op(0) ? -B : B)`，即按操作码最低位选择加或减。Datapath 用其计算跳转目标和访存地址。
+
+`AluSimple` 给各种操作直接写出表达式，代码上更加简洁。`AluArea` 则充分复用了各种运算元件，可以节省面积。
+
 ### 3.4 控制模块译码逻辑
 
 ## 第四章 缓存系统
