@@ -226,10 +226,10 @@ val inst = Mux(
 
 只要以下任一条件成立，当前取指结果就改成 `NOP`：
 
-- `started`：复位刚释放后的启动周期 | 避免把启动阶段尚未对应到有效请求的数据当作第一条指令 |
-| `io.ctrl.inst_kill` | 当前执行级指令要求插入气泡，例如跳转、load、CSR 指令、`FENCEI` 或 `ERET` | 跳转时丢弃顺序路径指令；保持 PC 时插入气泡，为当前操作留出处理时间 |
-| `brCond.io.taken` | 执行级条件分支成立 | 分支目标已经改写 `next_pc`，顺序路径上的返回指令需要丢弃 |
-| `csr.io.expt` | 写回级检测到异常 | 异常入口优先，年轻指令不能越过异常继续执行 |
+- `started`：复位刚释放后的启动周期，避免把启动阶段尚未对应到有效请求的数据当作第一条指令
+- `io.ctrl.inst_kill`：当前执行级指令要求插入气泡，例如跳转、load、CSR 指令、`FENCEI` 或 `ERET`，跳转时丢弃顺序路径指令；保持 PC 时插入气泡，为当前操作留出处理时间
+- `brCond.io.taken`：执行级条件分支成立，分支目标已经改写 `next_pc`，顺序路径上的返回指令需要丢弃
+- `csr.io.expt`：写回级检测到异常，异常入口优先，年轻指令不能越过异常继续执行
 
 这里的 `NOP` 是一种流水线气泡，不会改变程序可见的寄存器或存储器状态。`inst` 的选择是组合逻辑；若同时发生停顿，即使 `inst` 已变成 `NOP`，也要等允许推进时才会写入 `fe_reg`。
 
@@ -295,36 +295,74 @@ when(!stall) {
 
 ## 第四章 缓存系统
 
-### 4.1 Cache 的基本结构
+### 4.1 相关参数
 
-`Tile` 分别实例化一个 I-Cache 和一个 D-Cache，两者使用同一个 `Cache` 模块、各自保存独立的缓存内容。面向 Core 的一侧是 `CacheIO`，面向外部存储器的一侧是 NASTI 总线；两路缓存的 NASTI 请求经 `MemArbiter` 汇合。取指请求只读 I-Cache，数据访存请求读写 D-Cache。
+`Tile` 中的 I-Cache 和 D-Cache 共享 `Cache` 构造器，外部访存请求由 `MemArbiter` 汇合到同一总线。区别在于 Core 对 I-Cache 只发读请求，而对 D-Cache 可发读写请求。
 
-当前 `MiniConfig` 为每路 Cache 设置 `nSets = 256`、`blockBytes = 16`、`nWays = 1`。实现中每个组只有一份标签和一条数据行，没有按路选择或替换逻辑，因此是**直接映射缓存**；`nWays` 尚未参与硬件实现，单独修改它不会得到多路组相联结构。每条缓存行含 4 个 32 位字，数据容量为 `256 × 16 B = 4 KiB`（不含标签、有效位和脏位）。外部 NASTI 数据宽度为 64 位，装入或写回一行需要传输 2 个数据拍。
+`Cache` 的构造函数是 `new Cache(p: CacheConfig, nasti: NastiBundleParameters, xlen: Int)`。
 
-| 32 位地址字段 | 位范围 | 用途 |
+| 构造参数 | 作用 | 解释 |
+| --------- | ---- | ---- |
+| `p.nWays` | Way 的个数 | 本项目中设置为 1，因此不是组相联 |
+| `p.nSets` | Set 的个数 | 其对数就是 Set 索引地址宽度 |
+| `p.blockBytes` | CacheLine 的总字节宽度 | 本处设置为 16。业界通常设置为 64 |
+| `nasti.addrBits` | 总线读写地址位宽 | |
+| `nasti.dataBits` | 总线数据传输位宽 | 本处设置为 64，即每次传输半个 CacheLine。业界常单次传输整个 64 字节 CacheLine，通常设置为 512 |
+| `nasti.idBits` | 事务 ID 字段位宽 | 本处无需使用的需求，恒定配置为 0 |
+| `xlen` | 处理器字长 | 本项目为 32 位处理器 |
+
+在本项目中，按照相关配置，地址各位的功能如下
+
+| 地址字段 | 位范围 | 作用 |
 | --- | --- | --- |
-| Tag | `[31:12]`，20 位 | 与组内保存的标签比较 |
-| 组索引 | `[11:4]`，8 位 | 选择 256 个组之一 |
-| 行内字偏移 | `[3:2]`，2 位 | 选择缓存行中的一个 32 位字 |
-| 字节偏移 | `[1:0]`，2 位 | 配合写掩码定位字内字节 |
+| Tag | `[31:12]`（20 位） | 标识映射到该组的内存行 |
+| 组索引 | `[11:4]`（8 位） | 选中 256 Set 之一 |
+| 字偏移 | `[3:2]`（2 位） | 选中 CacheLine 中的 4 个字之一 |
+| 字节偏移 | `[1:0]`（2 位） | 字内字节位置，用于写掩码 |
 
-缓存的数据与状态分别存放：`metaMem` 是每组一个 Tag 的同步读存储器；`dataMem` 由 4 个按字组织的同步读存储器组成，每个字又拆为 4 个可按字节掩码写入的字节。`v` 和 `d` 是按组索引的有效位、脏位寄存器向量。只有 `v` 有效且读出的 Tag 与请求 Tag 相等才算命中。由于标签和数据采用同步读，请求先按组索引发起读，下一拍再使用读出结果完成比较和 32 位字选择；`addr_reg`、`cpu_data`、`cpu_mask` 保存处理中的请求信息，`rdata_buf` 保存需要跨周期使用的读出数据，`refill_buf` 暂存从外部存储器返回的整行。
+`Cache` 的顶层接口是 `CacheModuleIO`，分为面向 Core 的 `io.cpu` 和面向 `MemArbiter` 的 `io.nasti` 两个 Bundle。
 
-```mermaid
-flowchart LR
-    CPU["Core 请求：地址／写数据／字节掩码"] --> REG["请求寄存器与组索引"]
-    REG --> META["Tag 存储器＋有效位／脏位"]
-    REG --> DATA["4 × 32 位数据存储器"]
-    META --> HIT["Tag 比较与命中判断"]
-    DATA --> SEL["行内字选择"]
-    HIT --> SEL
-    SEL --> RESP["Core 响应：32 位数据／valid"]
-    HIT --> FSM["Cache 状态机"]
-    FSM <-->|"缺失装入／脏行写回"| NASTI["NASTI 接口"]
-    NASTI --> BUF["refill_buf"]
-    BUF --> DATA
-```
+| `io.cpu` 端口 | 方向 | 作用 |
+| ------------- | ---- | ---- |
+| `io.cpu.req.valid` | Core → Cache | `Valid[CacheReq]` 端口协议的 `valid` |
+| `io.cpu.req.addr` | Core → Cache | `CacheReq` 地址总线位宽 |
+| `io.cpu.req.data` | Core → Cache | `CacheReq` 数据总线位宽 |
+| `io.cpu.req.mask` | Core → Cache | `CacheReq` 写数据字节掩码，全零则为读请求 |
+| `io.cpu.resp.valid` | Cache → Core | `Valid[CacheResp]` 端口协议的 `valid` |
+| `io.cpu.resp.data` | Cache → Core | `CacheResp` 仅读数据需要发回 Core |
+| `io.cpu.abort` | Core → Cache | 拉高取消正在进行的写操作 |
 
-Core 请求包含 32 位地址、32 位写数据和 4 位字节写掩码：掩码全零表示读，非零表示写；响应包含 32 位数据和 `valid`，接口没有 `ready` 信号。命中时从所选字返回读数据，或按掩码更新对应字节并置脏；缺失时，若被映射组中的旧行有效且为脏行，就先写回旧行，再装入新行，否则直接装入。装入时写入新 Tag 和整行数据、置有效并清脏；写缺失随后更新新行，因此采用**写分配、写回**策略。状态机用 `sIdle`、`sReadCache`、`sWriteCache`、`sWriteBack`、`sWriteAck`、`sRefillReady`、`sRefill` 协调这些过程。需要注意，`sIdle` 时 `resp.valid` 本身就为真，不能将它单独解释为一次新请求已经命中；取指级的启动屏蔽逻辑正是为这一时序特性服务。
+| `io.nasti` 端口 | 方向 |
+| --------------- | ---- |
+| `io.nasti.ar` | Cache → 仲裁器 |
+| `io.nasti.r` | 仲裁器 → Cache |
+| `io.nasti.aw` | Cache → 仲裁器 |
+| `io.nasti.w` | Cache → 仲裁器 |
+| `io.nasti.b` | 仲裁器 → Cache |
 
+NASTI 总线的五个通道都为 `Decoupled` 端口协议，使用 `valid/ready` 握手。
 
+### 4.2 基本结构
+
+Cache 的主体主要由以下存储元件组成。
+
+| 关键元件 | 类型 | 功能名称 |
+| --- | --- | --- |
+| `metaMem` | `SyncReadMem` | Tag 存储器 |
+| `dataMem` | `SyncReadMem` | 数据存储器 |
+| `v` | `Reg` | 有效标志位寄存器 |
+| `d` | `Reg` | 脏标志位寄存器 |
+
+### 4.3 读时序
+
+读请求的 `io.cpu.req.bits.mask = 0`。`metaMem` 和 `dataMem` 均为同步读存储器，所以请求地址进入 Cache 后，要到下一个周期才能用读出的 Tag 判断是否命中。
+
+1. **发起请求（`sIdle`）**：当 `req.valid = 1` 时，直接使能 `metaMem` 和 `dataMem` 的同步读，并在时钟沿把请求地址写入 `addr_reg`，随后进入 `sReadCache`。此时 `sIdle` 已使 `resp.valid = 1`，但返回数据还不对应刚发出的地址，不能据此认定本次读命中。
+2. **判断命中（下一周期，`sReadCache`）**：用读出的 `rmeta.tag` 与 `addr_reg` 中的 Tag 比较，同时检查 `v(idx_reg)`。若命中，按 `off_reg` 从 `rdata` 选出 32 位目标字；`resp.valid = 1`，`resp.bits.data` 即为读结果，无需访问 NASTI。若有下一笔有效请求，可继续发起同步读。
+3. **处理缺失（`sReadCache`）**：若未命中，`resp.valid` 拉低，Cache 保持待处理地址，Core 等待。若原 Set 有效且为脏，先经过 `sWriteBack` 和 `sWriteAck` 写回旧行，再在 `sRefillReady` 发起读地址请求；否则直接发起读地址请求。读地址握手后进入 `sRefill`。
+4. **接收回填（`sRefill`）**：`io.nasti.r.ready = 1`；每次 `r.fire` 将一个 64 位数据拍写入 `refill_buf(read_count)`。当前配置每行需 2 拍；第二拍握手时，`read_wrap_out` 使 Cache 在该时钟沿写入新 Tag 和整行数据，将 `v` 置 1、`d` 清 0。回填期间 `resp.valid = 0`，所需周期取决于外部存储器。
+5. **返回数据（回填后的下一周期）**：状态回到 `sIdle`，`is_alloc_reg = 1` 使数据多路选择器使用完整的 `refill_buf`，再由 `off_reg` 选出原请求的字。此时读结果有效，流水线可以恢复推进。
+
+因此，**命中需要一次同步存储器读延迟**；缺失还需等待可能的脏行写回与 NASTI 回填。Cache 以配置的 `dataBeats` 和握手计数判断最后一个回填拍，而不是用 `io.nasti.r.bits.last` 判断。`resp.valid` 在空闲状态也为真，解释读响应时须结合当前请求和状态，不能只看这个信号。
+
+### 4.4 写时序
